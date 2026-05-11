@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Float  # Added Float here
 from datetime import datetime
 from database import Base
 
@@ -8,7 +8,9 @@ class PrintJob(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_name = Column(String, index=True)
     roll_number = Column(String, index=True)
-    file_url = Column(String)  # This will store the local path or Azure Blob URL
-    page_settings = Column(JSON)  # e.g., {"color": "B&W", "copies": 1, "duplex": true}
+    file_url = Column(String)  
+    page_settings = Column(JSON)  
+    page_count = Column(Integer, default=1)
     status = Column(String, default="Queued", index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    total_cost = Column(Float) # This will work now
