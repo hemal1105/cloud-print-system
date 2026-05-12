@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Depends, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -9,7 +11,7 @@ import os
 import shutil
 import json
 import uuid
-from datetime import datetime # <--- FIXED IMPORT
+from datetime import datetime
 
 from database import engine, get_db
 import models, schemas
@@ -17,9 +19,21 @@ import models, schemas
 # =========================
 # DATABASE INITIALIZATION
 # =========================
-models.Base.metadata.create_all(bind=engine)
+# Using lifespan (recommended over deprecated @app.on_event).
+# Tables are created automatically on first run against Azure SQL.
+# If the tables already exist, create_all() is a no-op — safe to run every time.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: create all tables defined in models.py if they don't exist."""
+    print("[Startup] Connecting to Azure SQL and initialising schema...")
+    models.Base.metadata.create_all(bind=engine)
+    print("[Startup] Schema ready.")
+    yield  # App runs here
+    # (Add any shutdown/cleanup logic below the yield if needed)
+    print("[Shutdown] Database connections released.")
 
-app = FastAPI(title="Cloud Print Queue System")
+
+app = FastAPI(title="Cloud Print Queue System", lifespan=lifespan)
 
 # =========================
 # CORS CONFIGURATION

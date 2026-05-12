@@ -3,3 +3,6 @@ uvicorn[standard]
 sqlalchemy
 python-multipart
 azure-storage-blob
+PyPDF2
+pyodbc
+python-dotenv
