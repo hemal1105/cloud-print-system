@@ -5,13 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from PyPDF2 import PdfReader
 from typing import List
 import os
-import shutil
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+from dotenv import load_dotenv
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions, ContentSettings
 
 from database import engine, get_db
 import models, schemas
@@ -57,19 +58,46 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # =========================
+# AZURE STORAGE SETUP
+# =========================
+load_dotenv()
+AZURE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+AZURE_CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME", "print-jobs")
+
+blob_service_client = None
+if AZURE_CONNECTION_STRING:
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        # Ensure container exists
+        container_client = blob_service_client.get_container_client(AZURE_CONTAINER_NAME)
+        if not container_client.exists():
+            container_client.create_container()
+            print(f"[Azure] Created container '{AZURE_CONTAINER_NAME}'")
+    except Exception as e:
+        print(f"[Azure Init Error] {e}")
+
+# =========================
 # HELPER FUNCTIONS
 # =========================
-def get_page_count(file_path: str) -> int:
-    """Extracts page count if file is a PDF."""
-    if file_path.lower().endswith(".pdf"):
-        try:
-            with open(file_path, "rb") as f:
-                reader = PdfReader(f)
-                return len(reader.pages)
-        except Exception as e:
-            print(f"PDF Read Error: {e}")
-            return 1
-    return 1
+def calculate_job_duration_seconds(page_count: int, settings: dict) -> int:
+    """Calculates realistic printer time based on settings."""
+    duration = 5  # Fixed spooling/warmup time per job
+    
+    color_val = settings.get("color", "B&W")
+    paper_size = settings.get("size", "A4")
+    sides = settings.get("sides", "Single")
+    copies = int(settings.get("copies", 1))
+    
+    time_per_page = 2 # Base time for A4 B&W Single
+    if color_val == "Color":
+        time_per_page += 2
+    if paper_size == "A3":
+        time_per_page += 3
+    if sides == "Double":
+        time_per_page += 3
+        
+    duration += (page_count * copies * time_per_page)
+    return duration
 
 # =========================
 # ROUTES
@@ -78,6 +106,10 @@ def get_page_count(file_path: str) -> int:
 @app.get("/")
 def home():
     return FileResponse("static/index.html")
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse("static/admin.html")
 
 @app.post("/upload")
 async def upload_file(
@@ -95,48 +127,75 @@ async def upload_file(
     except:
         raise HTTPException(status_code=400, detail="Invalid JSON format")
 
-    # 2. Secure & Save File
+    # 2. Upload to Azure Blob Storage
     file_ext = os.path.splitext(file.filename)[1]
     unique_filename = f"{uuid.uuid4()}{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    
+    file_url = ""
+    if blob_service_client:
+        try:
+            blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=unique_filename)
+            # Upload the incoming file stream directly without saving locally!
+            blob_client.upload_blob(
+                file.file, 
+                content_settings=ContentSettings(content_type=file.content_type)
+            )
+            
+            # Generate a Secure SAS Token valid for 30 days
+            sas_token = generate_blob_sas(
+                account_name=blob_service_client.account_name,
+                container_name=AZURE_CONTAINER_NAME,
+                blob_name=unique_filename,
+                account_key=blob_service_client.credential.account_key,
+                permission=BlobSasPermissions(read=True),
+                expiry=datetime.now(timezone.utc) + timedelta(days=30)
+            )
+            file_url = f"{blob_client.url}?{sas_token}"
+        except Exception as e:
+            print(f"Azure Upload Error: {e}")
+            raise HTTPException(status_code=500, detail="Cloud Storage Upload Failed")
+    else:
+        # Fallback to local storage if Azure is not configured
+        file_path = os.path.join(UPLOAD_DIR, unique_filename)
+        try:
+            with open(file_path, "wb") as buffer:
+                buffer.write(file.file.read())
+            file_url = f"/uploads/{unique_filename}"
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="Local Storage Upload Failed")
 
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    finally:
-        await file.close()
-
-    # 3. Process Metadata & Math
-    page_count = get_page_count(file_path)
+    # 3. Process Metadata & Math (using frontend page count)
+    page_count = int(settings.get("pageCount", 1))
     
     # B&W = 1, Color = 10
     color_val = settings.get("color", "B&W")
     base_rate = 10 if color_val == "Color" else 1
+    
+    paper_size = settings.get("size", "A4")
+    size_multiplier = 2 if paper_size == "A3" else 1
+    
     copies = int(settings.get("copies", 1))
     
     # ACTUAL TOTAL COST MATH
-    total_cost = float(base_rate * page_count * copies)
+    total_cost = float(base_rate * size_multiplier * page_count * copies)
 
     # 4. Save to Database
     try:
         db_job = models.PrintJob(
             user_name=name,
             roll_number=roll,
-            file_url=f"/uploads/{unique_filename}",
+            file_url=file_url,
             page_count=page_count,
             page_settings=settings,
             status="Queued",
             total_cost=total_cost,
-            # datetime.now() uses your Mumbai system time
             timestamp=datetime.now() 
         )
         db.add(db_job)
         db.commit()
         db.refresh(db_job)
     except Exception as e:
-        if os.path.exists(file_path): os.remove(file_path)
         print(f"DB Error: {e}")
-        # If this fails, it's usually because the .db file doesn't have the 'total_cost' column
         raise HTTPException(status_code=500, detail="Database Save Failed. Delete your .db file and restart.")
 
     return {
@@ -150,6 +209,14 @@ async def upload_file(
 @app.get("/queue", response_model=List[schemas.PrintJobResponse])
 def get_queue(db: Session = Depends(get_db)):
     return db.query(models.PrintJob).filter(models.PrintJob.status == "Queued").all()
+
+@app.get("/queue/status")
+def get_queue_count(db: Session = Depends(get_db)):
+    jobs = db.query(models.PrintJob).filter(models.PrintJob.status == "Queued").all()
+    total_seconds = 0
+    for job in jobs:
+        total_seconds += calculate_job_duration_seconds(job.page_count, job.page_settings)
+    return {"count": len(jobs), "estimated_wait_seconds": total_seconds}
 
 @app.patch("/complete/{job_id}")
 def complete_job(job_id: int, db: Session = Depends(get_db)):
