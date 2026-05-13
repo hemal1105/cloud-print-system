@@ -3,164 +3,334 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cloud Print Queue | Production Ready</title>
+    <title>Cloud Print Queue</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        * { transition: all 0.3s ease; }
         body {
-            min-height: 100vh;
             font-family: 'Inter', sans-serif;
-            color: white;
-            background: linear-gradient(-45deg, #1e1b4b, #312e81, #1e3a8a, #4338ca);
+            background: linear-gradient(-45deg, #20d0d0, #1059b5, #3a2468, #de397f, #f2c94c);
             background-size: 400% 400%;
-            animation: gradientBG 15s ease infinite;
+            animation: gradientBG 20s ease infinite;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
         }
         @keyframes gradientBG {
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-        .glass {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
-        body.light-mode { background: #f1f5f9; color: #0f172a; }
-        body.light-mode .glass { background: rgba(255, 255, 255, 0.9); border: 1px solid #e2e8f0; color: #0f172a; }
+        .animate-bg-shift {
+            background-size: 400% 400%;
+            animation: gradientShift 6s ease infinite;
+        }
+        .app-container {
+            background: rgba(26, 17, 71, 0.4);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 40px;
+            box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 72rem; /* Desktop width */
+            padding: 2rem 2.5rem;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+        .glass-card {
+            background-color: #2c2465;
+            border-radius: 24px;
+        }
+        .vibrant-gradient {
+            background: linear-gradient(135deg, #f72585 0%, #7209b7 50%, #4361ee 100%);
+        }
+        .input-field {
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        .input-field:focus {
+            background-color: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            outline: none;
+        }
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #2c2465; border-radius: 3px; }
+
+        /* Hide number spinners */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        /* Custom Animations */
+        @keyframes shimmerLine {
+            0% { background-position: 200% center; }
+            100% { background-position: 0% center; }
+        }
+
+        .animated-glow-bg {
+            background: linear-gradient(90deg, #2c2465 0%, #5d35b0 50%, #2c2465 100%);
+            background-size: 200% auto;
+            animation: shimmerLine 2.5s linear infinite;
+            box-shadow: 0 0 12px rgba(93, 53, 176, 0.5);
+        }
+
+        .animated-border-glow {
+            background: linear-gradient(90deg, #00f5d4 0%, #f72585 50%, #00f5d4 100%);
+            background-size: 200% auto;
+            animation: shimmerLine 2s linear infinite;
+            box-shadow: 0 0 10px rgba(0, 245, 212, 0.6);
+        }
+
+        .btn-gradient {
+            background: linear-gradient(-45deg, #f72585, #7209b7, #4361ee, #00f5d4, #f72585);
+            background-size: 300% auto;
+            transition: all 0.4s ease-in-out;
+            box-shadow: 0 4px 20px rgba(114, 9, 183, 0.4);
+        }
+        .btn-gradient:hover {
+            background-position: 100% center;
+            box-shadow: 0 12px 35px rgba(114, 9, 183, 0.7);
+        }
+        .btn-gradient:active {
+            transform: scale(0.96);
+            box-shadow: 0 2px 15px rgba(114, 9, 183, 0.9);
+            filter: brightness(1.2);
+        }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body>
 
-<div id="successToast" class="fixed top-5 right-5 hidden bg-emerald-600 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 animate-bounce">
-    ✅ Print Job Submitted Successfully!
+<div id="successToast" class="fixed top-5 right-5 hidden bg-emerald-500 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 transition-all">
+    ✅ Print Job Submitted!
 </div>
 
-<div class="max-w-6xl mx-auto space-y-6">
-    <!-- HEADER -->
-    <header class="flex justify-between items-end border-b border-white/10 pb-6">
+<div class="app-container">
+    <!-- Header -->
+    <header class="flex justify-between items-center mb-6 px-2">
         <div>
-            <h1 class="text-3xl md:text-5xl font-black tracking-tight">☁️ Cloud Print</h1>
-            <p id="liveClock" class="text-lg font-medium opacity-80 mt-1"></p>
+            <h1 class="text-2xl font-black tracking-tight">Cloud Print</h1>
+            <p id="liveClock" class="text-xs opacity-60 font-medium mt-1"></p>
         </div>
-        <button id="themeToggle" class="glass px-5 py-2 rounded-xl font-bold hover:scale-105 active:scale-95">🌓 Theme</button>
+        <div class="w-10 h-10 rounded-full vibrant-gradient flex items-center justify-center font-bold text-base shadow-[0_0_20px_rgba(114,9,183,0.5)]">
+            ClPr
+        </div>
     </header>
 
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <!-- UPLOAD SECTION -->
-        <div class="lg:col-span-4 glass rounded-3xl p-6 space-y-6">
-            <h2 class="text-xl font-bold opacity-90">Create New Job</h2>
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <!-- Left Side: Queue Status -->
+        <div class="lg:col-span-5 flex flex-col h-full">
+            <div class="glass-card rounded-[2rem] p-10 flex flex-col justify-center items-start text-white relative overflow-hidden group shadow-2xl h-full border border-white/10 bg-gradient-to-br from-[#4361ee]/40 via-[#f72585]/40 to-[#4361ee]/40 animate-bg-shift min-h-[400px]">
+                <div class="relative z-10 flex flex-col items-start text-left w-full">
+                    <h2 class="text-xl font-bold mb-2 tracking-widest text-emerald-300">QUEUE STATUS</h2>
+                    <div class="flex items-baseline gap-3 mb-4">
+                        <span id="queueCount" class="text-6xl font-black">0</span>
+                        <span class="text-lg opacity-90 font-medium">Jobs Ahead</span>
+                    </div>
+                    
+                    <div class="bg-white/10 inline-flex px-4 py-2 rounded-xl mb-4 border border-white/5 items-center gap-2 shadow-inner">
+                        <svg class="w-4 h-4 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span class="text-sm font-semibold opacity-90" id="waitTimeDisplay">Wait Time: Calculating...</span>
+                    </div>
+                    
+                    <p class="text-xs opacity-80 max-w-[250px] leading-relaxed font-medium">Your print job will be added to this queue and processed in the exact order it was received.</p>
+                </div>
+                <!-- Decorative blur elements -->
+                <div class="absolute -bottom-20 -right-20 w-64 h-64 bg-white rounded-full opacity-20 blur-[50px]"></div>
+                <div class="absolute -top-10 -left-10 w-32 h-32 bg-pink-300 rounded-full opacity-30 blur-[40px]"></div>
+            </div>
+        </div>
+
+        <!-- Right Side: Create New Job Form -->
+        <div class="lg:col-span-7 flex flex-col">
+            <div class="flex items-center justify-between mb-4 px-2">
+                <h2 class="text-lg font-bold opacity-90">New Print Job</h2>
+                <span class="text-xl font-normal opacity-50">+</span>
+            </div>
+            
             <form id="uploadForm" class="space-y-4">
-                <input type="text" id="userName" required placeholder="Student Name" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:ring-2 ring-indigo-500 outline-none">
-                <input type="text" id="rollNumber" required placeholder="Roll Number" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:ring-2 ring-indigo-500 outline-none">
-                
-                <div id="dropZone" class="border-2 border-dashed border-white/20 rounded-2xl p-8 text-center cursor-pointer hover:bg-white/5 transition-colors">
-                    <input type="file" id="fileInput" class="hidden" accept=".pdf,.doc,.docx,.jpg,.png">
-                    <div class="text-3xl mb-2">📄</div>
-                    <p id="fileNameDisplay" class="text-sm opacity-70">Click to upload document</p>
+                <div class="glass-card p-5 space-y-3 shadow-lg">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input type="text" id="userName" required placeholder="Student Name" class="input-field w-full rounded-xl px-4 py-3 text-sm transition-all placeholder:text-white/40 font-medium">
+                        <input type="text" id="rollNumber" required placeholder="Roll Number" class="input-field w-full rounded-xl px-4 py-3 text-sm transition-all placeholder:text-white/40 font-medium">
+                    </div>
+                    
+                    <div id="dropZone" class="input-field border-dashed rounded-xl p-5 text-center cursor-pointer hover:bg-white/10 transition-all flex flex-col items-center justify-center gap-2">
+                        <svg class="w-6 h-6 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                        <p id="fileNameDisplay" class="text-xs opacity-60 font-medium">Tap to select document</p>
+                        <input type="file" id="fileInput" class="hidden" accept=".pdf,.doc,.docx,.jpg,.png">
+                    </div>
                 </div>
 
-                <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
-                    <div class="flex justify-between items-center mb-4">
-                        <span class="text-sm font-semibold">Mode:</span>
-                        <div class="flex gap-2">
-                            <label class="cursor-pointer">
-                                <input type="radio" name="colorMode" value="B&W" checked onchange="calculateUIEstimate()" class="hidden peer">
-                                <span class="px-3 py-1 rounded-lg border border-white/20 peer-checked:bg-white peer-checked:text-indigo-900 text-xs">B&W (₹1)</span>
+                <div class="glass-card p-5 flex flex-col gap-4 shadow-lg">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-semibold opacity-80">Color Mode</span>
+                        <div class="relative flex bg-[#1a1147] rounded-xl p-1 w-[160px]">
+                            <!-- Sliding Pill -->
+                            <div class="absolute inset-y-1 left-1 w-[calc(50%-4px)] animated-glow-bg rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]" id="pill-colorMode"></div>
+                            
+                            <label class="flex-1 text-center relative z-10 cursor-pointer">
+                                <input type="radio" name="colorMode" value="B&W" checked onchange="calculateUIEstimate(); document.getElementById('pill-colorMode').style.transform='translateX(0)'" class="hidden peer">
+                                <span class="block py-2 text-[11px] font-bold text-white/50 peer-checked:text-white transition-colors">B&W (₹1)</span>
                             </label>
-                            <label class="cursor-pointer">
-                                <input type="radio" name="colorMode" value="Color" onchange="calculateUIEstimate()" class="hidden peer">
-                                <span class="px-3 py-1 rounded-lg border border-white/20 peer-checked:bg-white peer-checked:text-indigo-900 text-xs">Color (₹10)</span>
+                            <label class="flex-1 text-center relative z-10 cursor-pointer">
+                                <input type="radio" name="colorMode" value="Color" onchange="calculateUIEstimate(); document.getElementById('pill-colorMode').style.transform='translateX(100%)'" class="hidden peer">
+                                <span class="block py-2 text-[11px] font-bold text-white/50 peer-checked:text-white transition-colors">Color (₹10)</span>
                             </label>
                         </div>
                     </div>
+                    
                     <div class="flex justify-between items-center">
-                        <span class="text-sm font-semibold">Copies:</span>
-                        <input type="number" id="copiesOption" value="1" min="1" class="w-16 bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-center" oninput="calculateUIEstimate()">
+                        <span class="text-sm font-semibold opacity-80">Paper Size</span>
+                        <div class="relative flex bg-[#1a1147] rounded-xl p-1 w-[160px]">
+                            <div class="absolute inset-y-1 left-1 w-[calc(50%-4px)] animated-glow-bg rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]" id="pill-paperSize"></div>
+                            
+                            <label class="flex-1 text-center relative z-10 cursor-pointer">
+                                <input type="radio" name="paperSize" value="A4" checked onchange="calculateUIEstimate(); document.getElementById('pill-paperSize').style.transform='translateX(0)'" class="hidden peer">
+                                <span class="block py-2 text-xs font-bold text-white/50 peer-checked:text-white transition-colors">A4</span>
+                            </label>
+                            <label class="flex-1 text-center relative z-10 cursor-pointer">
+                                <input type="radio" name="paperSize" value="A3" onchange="calculateUIEstimate(); document.getElementById('pill-paperSize').style.transform='translateX(100%)'" class="hidden peer">
+                                <span class="block py-2 text-xs font-bold text-white/50 peer-checked:text-white transition-colors">A3</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-semibold opacity-80">Sides</span>
+                        <div class="relative flex bg-[#1a1147] rounded-xl p-1 w-[160px]">
+                            <div class="absolute inset-y-1 left-1 w-[calc(50%-4px)] animated-glow-bg rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]" id="pill-sides"></div>
+                            
+                            <label class="flex-1 text-center relative z-10 cursor-pointer">
+                                <input type="radio" name="sides" value="Single" checked onchange="calculateUIEstimate(); document.getElementById('pill-sides').style.transform='translateX(0)'" class="hidden peer">
+                                <span class="block py-2 text-xs font-bold text-white/50 peer-checked:text-white transition-colors">Single</span>
+                            </label>
+                            <label class="flex-1 text-center relative z-10 cursor-pointer">
+                                <input type="radio" name="sides" value="Double" onchange="calculateUIEstimate(); document.getElementById('pill-sides').style.transform='translateX(100%)'" class="hidden peer">
+                                <span class="block py-2 text-xs font-bold text-white/50 peer-checked:text-white transition-colors">Double</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-semibold opacity-80">Copies</span>
+                        <div class="relative w-16">
+                            <input type="number" id="copiesOption" value="1" min="1" class="peer w-full bg-transparent border-0 border-b-2 border-white/30 text-center text-lg font-black text-white outline-none transition-colors pb-1 relative z-10 focus:border-transparent" oninput="calculateUIEstimate()">
+                            <!-- Glowing animated line -->
+                            <div class="absolute bottom-0 left-0 w-full h-[2px] animated-border-glow opacity-0 peer-focus:opacity-100 transition-opacity z-0 rounded-full"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center pt-3 border-t border-white/10 mt-1">
+                        <div class="flex flex-col">
+                            <span class="text-sm font-bold opacity-70">Estimated Total</span>
+                            <span class="text-[10px] opacity-50 font-bold tracking-wider mt-0.5">PRINT TIME: <span id="uiTimeEstimate">< 1 MIN</span></span>
+                        </div>
+                        <span id="uiCostEstimate" class="text-2xl font-black text-emerald-400">₹0</span>
                     </div>
                 </div>
 
-                <div class="text-center py-4">
-                    <p class="text-xs opacity-60 uppercase tracking-widest mb-1">Estimated Total</p>
-                    <p id="uiCostEstimate" class="text-4xl font-black text-emerald-400">₹0</p>
-                </div>
-
-                <button type="submit" class="w-full bg-white text-indigo-900 font-bold py-4 rounded-2xl hover:shadow-[0_0_20px_rgba(255,255,255,0.3)] transition-all transform active:scale-95">
-                    Submit to Queue
+                <button type="submit" class="w-full btn-gradient text-white font-bold py-3.5 rounded-xl mt-3 text-sm tracking-wide">
+                    Submit Print Job
                 </button>
             </form>
-        </div>
-
-        <!-- QUEUE SECTION -->
-        <div class="lg:col-span-8 glass rounded-3xl p-6 flex flex-col">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold opacity-90">Live Print Queue</h2>
-                <div class="text-right glass px-4 py-2 rounded-xl">
-                    <p class="text-[10px] uppercase opacity-60">Revenue</p>
-                    <p id="revenueAmount" class="text-xl font-black text-emerald-400">₹0</p>
-                </div>
-            </div>
-
-            <div class="overflow-x-auto flex-grow">
-                <table class="w-full text-left border-collapse">
-                    <thead class="text-[10px] uppercase tracking-wider opacity-50 border-b border-white/10">
-                        <tr>
-                            <th class="pb-4 px-2">Student / Roll</th>
-                            <th class="pb-4 px-2 text-center">Pages</th>
-                            <th class="pb-4 px-2">Settings</th>
-                            <th class="pb-4 px-2">Cost</th>
-                            <th class="pb-4 px-2">Time (IST)</th>
-                            <th class="pb-4 px-2 text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="queueTableBody" class="divide-y divide-white/5"></tbody>
-                </table>
-            </div>
         </div>
     </div>
 </div>
 
 <script>
-    const API_BASE_URL = "http://127.0.0.1:8000";
+    const API_BASE_URL = window.location.origin;
     let selectedFile = null;
-    let allJobs = [];
+    let selectedFilePageCount = 1;
 
-    // 1. CLOCK (IST Fix)
     function updateClock() {
-        const options = { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+        const options = { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true };
         document.getElementById('liveClock').textContent = new Date().toLocaleTimeString('en-IN', options);
     }
     setInterval(updateClock, 1000);
     updateClock();
 
-    document.getElementById('themeToggle').addEventListener('click', () => document.body.classList.toggle('light-mode'));
-
-    // 2. FILE SELECTION
     const fileInput = document.getElementById('fileInput');
     const fileNameDisplay = document.getElementById('fileNameDisplay');
     document.getElementById('dropZone').addEventListener('click', () => fileInput.click());
     
-    fileInput.addEventListener('change', (e) => {
+    fileInput.addEventListener('change', async (e) => {
         selectedFile = e.target.files[0];
         if (selectedFile) {
-            fileNameDisplay.textContent = selectedFile.name;
-            calculateUIEstimate(); // Trigger estimate on file selection
+            const name = selectedFile.name;
+            fileNameDisplay.textContent = name.length > 35 ? name.substring(0, 32) + '...' : name;
+            fileNameDisplay.classList.remove('opacity-60');
+            fileNameDisplay.classList.add('opacity-100', 'font-bold', 'text-emerald-300');
+            
+            // Default to 1 page for images/docs, attempt to read actual pages for PDFs
+            selectedFilePageCount = 1; 
+            
+            if (selectedFile.type === 'application/pdf' || name.toLowerCase().endsWith('.pdf')) {
+                document.getElementById('uiCostEstimate').textContent = "Counting...";
+                try {
+                    const arrayBuffer = await selectedFile.arrayBuffer();
+                    const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+                    selectedFilePageCount = pdfDoc.getPageCount();
+                } catch (err) {
+                    console.error("Could not parse PDF page count:", err);
+                }
+            }
+            
+            calculateUIEstimate();
         }
     });
 
-    // 3. COST ESTIMATOR (UI ONLY)
     function calculateUIEstimate() {
         const copies = parseInt(document.getElementById('copiesOption').value) || 1;
         const colorMode = document.querySelector('input[name="colorMode"]:checked').value;
+        const paperSize = document.querySelector('input[name="paperSize"]:checked').value;
+        const sides = document.querySelector('input[name="sides"]:checked').value;
+        
+        // --- Calculate Cost ---
         const rate = (colorMode === "Color") ? 10 : 1;
-        // UI Estimate (Assuming 1 page until backend confirms)
-        document.getElementById('uiCostEstimate').textContent = `₹${rate * copies}`;
+        const sizeMultiplier = (paperSize === "A3") ? 2 : 1;
+        const totalEstimate = rate * sizeMultiplier * copies * selectedFilePageCount;
+        
+        // --- Calculate Individual Job Time ---
+        let timePerPage = 2; // base
+        if (colorMode === "Color") timePerPage += 2;
+        if (paperSize === "A3") timePerPage += 3;
+        if (sides === "Double") timePerPage += 3;
+        
+        const durationSecs = 5 + (selectedFilePageCount * copies * timePerPage);
+        let timeStr = "< 1 MIN";
+        if (durationSecs >= 60) {
+            timeStr = `~ ${Math.floor(durationSecs / 60)} MINS`;
+        }
+        
+        document.getElementById('uiCostEstimate').textContent = `₹${totalEstimate}`;
+        document.getElementById('uiTimeEstimate').textContent = timeStr;
     }
 
-    // 4. SUBMIT JOB
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         if (!selectedFile) return alert("Please select a file first!");
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.textContent = "Uploading...";
+        btn.classList.add('opacity-70');
 
         const formData = new FormData();
         formData.append('name', document.getElementById('userName').value);
@@ -169,8 +339,10 @@
         const settings = {
             color: document.querySelector('input[name="colorMode"]:checked').value,
             copies: parseInt(document.getElementById('copiesOption').value) || 1,
-            duplex: false,
-            timestamp_ms: Date.now() // Send precise local timestamp
+            size: document.querySelector('input[name="paperSize"]:checked').value,
+            sides: document.querySelector('input[name="sides"]:checked').value,
+            pageCount: selectedFilePageCount,
+            timestamp_ms: Date.now()
         };
 
         formData.append('options', JSON.stringify(settings));
@@ -179,93 +351,56 @@
         try {
             const res = await fetch(`${API_BASE_URL}/upload`, { method: 'POST', body: formData });
             if (res.ok) {
-                const result = await res.json();
-                console.log("Uploaded pages:", result.pages); // Debug check
-                
                 document.getElementById('successToast').classList.remove('hidden');
                 setTimeout(() => document.getElementById('successToast').classList.add('hidden'), 3000);
                 
                 e.target.reset();
                 selectedFile = null;
-                fileNameDisplay.textContent = "Click to upload document";
+                selectedFilePageCount = 1;
+                fileNameDisplay.textContent = "Tap to select document";
+                fileNameDisplay.classList.add('opacity-60');
+                fileNameDisplay.classList.remove('opacity-100', 'font-bold', 'text-emerald-300');
                 calculateUIEstimate();
-                fetchQueue();
+                fetchQueueCount();
             } else {
                 alert("Server error during upload.");
             }
         } catch (err) {
-            alert("Connection error. Is the FastAPI server running?");
+            alert("Connection error. Is the server running?");
+        } finally {
+            btn.textContent = "Submit Print Job";
+            btn.classList.remove('opacity-70');
         }
     });
 
-    // 5. FETCH & RENDER QUEUE
-    async function fetchQueue() {
+    async function fetchQueueCount() {
         try {
-            const res = await fetch(`${API_BASE_URL}/queue`);
-            allJobs = await res.json();
-            renderQueue(allJobs);
+            const res = await fetch(`${API_BASE_URL}/queue/status`, { cache: 'no-store' });
+            const data = await res.json();
+            document.getElementById('queueCount').textContent = data.count;
+            
+            // Format queue wait time
+            const seconds = data.estimated_wait_seconds || 0;
+            let timeStr = "No wait time";
+            if (seconds > 0) {
+                if (seconds < 60) timeStr = "Under 1 min";
+                else {
+                    const mins = Math.floor(seconds / 60);
+                    const hrs = Math.floor(mins / 60);
+                    if (hrs > 0) {
+                        timeStr = `~ ${hrs} hr ${mins % 60} mins`;
+                    } else {
+                        timeStr = `~ ${mins} mins`;
+                    }
+                }
+            }
+            document.getElementById('waitTimeDisplay').textContent = `Wait Time: ${timeStr}`;
+            
         } catch (err) { console.warn("Fetch failed"); }
     }
 
-  function renderQueue(jobs) {
-        const tbody = document.getElementById('queueTableBody');
-        tbody.innerHTML = '';
-        let totalRev = 0;
-
-        jobs.forEach(job => {
-            totalRev += (job.total_cost || 0);
-            const fileName = job.file_url.split('/').pop();
-            
-            // --- TIME FIX (IST) ---
-            // We treat the timestamp as a local date string
-            const dateObj = new Date(job.timestamp);
-            const timeIST = dateObj.toLocaleTimeString('en-IN', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true
-            });
-
-            const s = job.page_settings;
-            // Handle both object and string settings for safety
-            const color = s.color || "B&W";
-            const copies = s.copies || 1;
-
-            // Inside renderQueue(jobs) loop:
-const tr = document.createElement('tr');
-tr.className = "hover:bg-white/5 transition-colors group";
-
-// Use a fallback to 0 if total_cost is missing
-const displayCost = job.total_cost !== undefined ? job.total_cost : 0;
-const displayPages = job.page_count !== undefined ? job.page_count : 1;
-
-tr.innerHTML = `
-    <td class="py-4 px-2">
-        <div class="font-bold text-sm">${job.user_name}</div>
-        <div class="text-[10px] opacity-50">${job.roll_number}</div>
-    </td>
-    <td class="py-4 px-2 text-center text-xs font-mono">${displayPages}</td>
-    <td class="py-4 px-2 text-[10px] opacity-70">${job.page_settings.color} | ${job.page_settings.copies} Copy</td>
-    <td class="py-4 px-2 font-bold text-emerald-400">₹${displayCost}</td>
-    <td class="py-4 px-2 text-[10px] font-medium">${timeIST}</td>
-    <td class="py-4 px-2 text-right space-x-1">
-        <a href="${API_BASE_URL}/view/${fileName}" target="_blank" class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded text-[9px] font-bold">VIEW</a>
-        <button onclick="markDone(${job.id})" class="px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded text-[9px] font-bold">DONE</button>
-    </td>
-`;
-            tbody.appendChild(tr);
-        });
-        document.getElementById('revenueAmount').textContent = `₹${totalRev}`;
-    }
-
-    async function markDone(id) {
-        if (!confirm("Is printing completed? This will remove the job.")) return;
-        await fetch(`${API_BASE_URL}/complete/${id}`, { method: 'PATCH' });
-        fetchQueue();
-    }
-
-    // Auto-refresh every 5 seconds
-    fetchQueue();
-    setInterval(fetchQueue, 5000);
+    fetchQueueCount();
+    setInterval(fetchQueueCount, 5000);
 </script>
 </body>
 </html>

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cloud Print Queue | Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(-45deg, #20d0d0, #1059b5, #3a2468, #de397f, #f2c94c);
+            background-size: 400% 400%;
+            animation: gradientBG 20s ease infinite;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .app-container {
+            background: rgba(26, 17, 71, 0.4);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 40px;
+            box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 72rem; /* Desktop width */
+            height: 85vh; /* Fixed height for dashboard layout */
+            max-height: 900px;
+            padding: 3.5rem 3rem;
+            color: white;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .glass-card {
+            background-color: #2c2465;
+            border-radius: 20px;
+        }
+        .vibrant-gradient {
+            background: linear-gradient(135deg, #f72585 0%, #7209b7 50%, #4361ee 100%);
+        }
+        /* Custom scrollbar */
+        .scrollable-area {
+            overflow-y: auto;
+            flex-grow: 1;
+            padding-right: 1rem;
+            margin-right: -1rem;
+        }
+        .scrollable-area::-webkit-scrollbar { width: 6px; }
+        .scrollable-area::-webkit-scrollbar-track { background: transparent; }
+        .scrollable-area::-webkit-scrollbar-thumb { background: #4361ee; border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <!-- Header -->
+    <header class="flex justify-between items-center mb-10 px-2 shrink-0">
+        <div class="flex items-center gap-6">
+            <a href="/" class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition-all">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+            </a>
+            <h1 class="text-2xl font-black tracking-tight">Admin Dashboard</h1>
+        </div>
+        <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors cursor-pointer shadow-lg">
+            <span class="text-sm">⚙️</span>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 flex-grow min-h-0">
+        <!-- Left Sidebar -->
+        <div class="lg:col-span-4 flex flex-col gap-6">
+            <!-- Revenue Gradient Card -->
+            <div class="vibrant-gradient rounded-[32px] p-8 shrink-0 relative overflow-hidden shadow-[0_15px_40px_rgba(114,9,183,0.3)]">
+                <div class="relative z-10 flex flex-col items-start">
+                    <span class="text-xs uppercase tracking-widest opacity-80 mb-2 font-bold">Total Revenue</span>
+                    <div class="flex items-baseline gap-2 mb-2">
+                        <span id="revenueAmount" class="text-6xl font-black">₹0</span>
+                    </div>
+                    <p id="liveClock" class="text-xs opacity-70 font-medium mt-2"></p>
+                </div>
+                <div class="absolute -bottom-10 -right-10 w-48 h-48 bg-white rounded-full opacity-20 blur-[40px]"></div>
+                <div class="absolute -top-10 -left-10 w-24 h-24 bg-pink-300 rounded-full opacity-30 blur-[30px]"></div>
+            </div>
+
+            <div class="glass-card p-6 flex-grow flex items-center justify-center border border-white/5 shadow-lg">
+                 <p class="text-sm opacity-50 text-center font-medium">Additional analytics<br>coming soon...</p>
+            </div>
+        </div>
+
+        <!-- Right Side: Queue -->
+        <div class="lg:col-span-8 flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-6 px-2 shrink-0">
+                <h2 class="text-xl font-bold opacity-90">Pending Jobs</h2>
+                <span class="text-sm font-bold opacity-80 px-4 py-1.5 bg-white/10 rounded-full shadow-inner" id="queueListCount">0 jobs</span>
+            </div>
+            
+            <div class="scrollable-area space-y-4" id="queueList">
+                <!-- JS populated items will go here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE_URL = window.location.origin;
+
+    function updateClock() {
+        const options = { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true };
+        document.getElementById('liveClock').textContent = 'Last updated: ' + new Date().toLocaleTimeString('en-IN', options);
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    async function fetchQueue() {
+        try {
+            const res = await fetch(`${API_BASE_URL}/queue`, { cache: 'no-store' });
+            const jobs = await res.json();
+            renderQueue(jobs);
+        } catch (err) { console.warn("Fetch failed"); }
+    }
+
+    function renderQueue(jobs) {
+        const list = document.getElementById('queueList');
+        const countBadge = document.getElementById('queueListCount');
+        
+        list.innerHTML = '';
+        countBadge.textContent = `${jobs.length} jobs`;
+        let totalRev = 0;
+
+        if (jobs.length === 0) {
+            list.innerHTML = '<div class="text-center text-sm opacity-50 mt-20 font-medium">No jobs currently in the queue.</div>';
+        }
+
+        jobs.forEach(job => {
+            totalRev += (job.total_cost || 0);
+            const fileName = job.file_url.split('/').pop();
+            
+            const dateObj = new Date(job.timestamp);
+            const timeIST = dateObj.toLocaleTimeString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+
+            const s = job.page_settings;
+            const color = s.color || "B&W";
+            const copies = s.copies || 1;
+            const size = s.size || "A4";
+            const sides = s.sides || "Single";
+            const displayCost = job.total_cost !== undefined ? job.total_cost : 0;
+
+            const div = document.createElement('div');
+            div.className = "glass-card p-5 flex items-center justify-between group shadow-md transition-transform hover:-translate-y-0.5";
+
+            div.innerHTML = `
+                <div class="flex items-center gap-5">
+                    <div class="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center text-2xl shrink-0 shadow-inner">
+                        📄
+                    </div>
+                    <div>
+                        <div class="font-bold text-base leading-tight">${job.user_name}</div>
+                        <div class="text-xs opacity-70 mt-1 font-medium">${job.roll_number} <span class="opacity-50 mx-1">•</span> ${size} <span class="opacity-50 mx-1">•</span> ${color} <span class="opacity-50 mx-1">•</span> ${sides} <span class="opacity-50 mx-1">•</span> x${copies}</div>
+                        <div class="text-[10px] opacity-50 mt-1 uppercase tracking-wider font-bold">${timeIST}</div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-end gap-3">
+                    <span class="font-black text-lg text-emerald-400">₹${displayCost}</span>
+                    <div class="flex gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <a href="${job.file_url}" target="_blank" class="px-4 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-colors">VIEW</a>
+                        <button onclick="markDone(${job.id})" class="px-4 py-1.5 bg-[#f72585]/20 hover:bg-[#f72585]/40 text-[#f72585] rounded-lg text-xs font-bold transition-colors shadow-sm">DONE</button>
+                    </div>
+                </div>
+            `;
+            list.appendChild(div);
+        });
+        document.getElementById('revenueAmount').textContent = `₹${totalRev}`;
+    }
+
+    async function markDone(id) {
+        if (!confirm("Is printing completed?")) return;
+        await fetch(`${API_BASE_URL}/complete/${id}`, { method: 'PATCH' });
+        fetchQueue();
+    }
+
+    fetchQueue();
+    setInterval(fetchQueue, 5000);
+</script>
+</body>
+</html>
