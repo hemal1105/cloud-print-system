@@ -2,6 +2,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
+from urllib.parse import quote_plus
 
 # -------------------------------------------------
 # Load environment variables from .env file
@@ -40,25 +41,22 @@ else:
     }
     _missing = [k for k, v in _azure_vars.items() if not v]
 
-    if not _missing:
-        # All four Azure vars present — build the Azure SQL connection string
-        print("[DB] All AZURE_SQL_* vars found. Connecting to Azure SQL...")
-        SQLALCHEMY_DATABASE_URL = (
-            f"mssql+pyodbc://{AZURE_SQL_USER}:{AZURE_SQL_PASSWORD}"
-            f"@{AZURE_SQL_SERVER}/{AZURE_SQL_DATABASE}"
-            f"?driver=ODBC+Driver+18+for+SQL+Server"
-            f"&Encrypt=yes"
-            f"&TrustServerCertificate=no"
-            f"&Connection+Timeout=30"
-        )
-    else:
-        # No DATABASE_URL and Azure vars are incomplete — fall back to SQLite
-        print(
-            f"[DB] WARNING: Azure SQL vars not set ({', '.join(_missing)}). "
-            "Falling back to local SQLite (database.db). "
-            "Set DATABASE_URL or all AZURE_SQL_* vars for production."
-        )
-        SQLALCHEMY_DATABASE_URL = "sqlite:///./database.db"
+    
+
+if not _missing:
+    print("[DB] All AZURE_SQL_* vars found. Connecting to Azure SQL...")
+    
+    odbc_str = (
+        f"Driver={{ODBC Driver 18 for SQL Server}};"
+        f"Server=tcp:{AZURE_SQL_SERVER},1433;"
+        f"Database={AZURE_SQL_DATABASE};"
+        f"Uid={AZURE_SQL_USER};"
+        f"Pwd={AZURE_SQL_PASSWORD};"
+        f"Encrypt=yes;"
+        f"TrustServerCertificate=no;"
+        f"Connection Timeout=30;"
+    )
+    SQLALCHEMY_DATABASE_URL = f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc_str)}"
 
 # -------------------------------------------------
 # SQLAlchemy engine — SQLite needs check_same_thread=False
