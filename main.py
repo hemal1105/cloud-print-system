@@ -288,3 +288,9 @@ def view_file(filename: str):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404)
     return FileResponse(file_path)
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
