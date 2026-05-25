@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions, ContentSettings
+import razorpay
+from pydantic import BaseModel
 
 from database import engine, get_db
 import models, schemas
@@ -77,6 +79,16 @@ if AZURE_CONNECTION_STRING:
         print(f"[Azure Init Error] {e}")
 
 # =========================
+# RAZORPAY SETUP
+# =========================
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+
+razorpay_client = None
+if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
+    razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+# =========================
 # HELPER FUNCTIONS
 # =========================
 def calculate_job_duration_seconds(page_count: int, settings: dict) -> int:
@@ -111,19 +123,61 @@ def home():
 def admin_page():
     return FileResponse("static/admin.html")
 
+class OrderRequest(BaseModel):
+    amount: float
+
+@app.post("/create-order")
+def create_order(request: OrderRequest):
+    if not razorpay_client:
+        raise HTTPException(status_code=500, detail="Razorpay is not configured")
+    
+    amount_in_paise = int(request.amount * 100)
+    
+    try:
+        data = {
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "receipt": f"receipt_{uuid.uuid4().hex[:8]}"
+        }
+        order = razorpay_client.order.create(data=data)
+        return {"order_id": order["id"]}
+    except Exception as e:
+        print(f"Razorpay Order Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create Razorpay Order")
+
 @app.post("/upload")
 async def upload_file(
     name: str = Form(...),
     roll: str = Form(...),
     options: str = Form(...),
+    razorpay_payment_id: str = Form(...),
+    razorpay_order_id: str = Form(...),
+    razorpay_signature: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    # 0. Verify Razorpay Signature mathematically
+    if not razorpay_client:
+        raise HTTPException(status_code=500, detail="Razorpay is not configured")
+        
+    try:
+        razorpay_client.utility.verify_payment_signature({
+            'razorpay_order_id': razorpay_order_id,
+            'razorpay_payment_id': razorpay_payment_id,
+            'razorpay_signature': razorpay_signature
+        })
+    except razorpay.errors.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid Payment Signature")
+
     # 1. Parse JSON options
     try:
         settings = json.loads(options)
         if isinstance(settings, str): 
             settings = json.loads(settings)
+            
+        # Inject payment receipt into settings for admin visibility
+        settings["razorpay_payment_id"] = razorpay_payment_id
+        settings["razorpay_order_id"] = razorpay_order_id
     except:
         raise HTTPException(status_code=400, detail="Invalid JSON format")
 
