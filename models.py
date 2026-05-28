@@ -15,5 +15,6 @@ class PrintJob(Base):
     page_settings = Column(JSON)
     page_count    = Column(Integer, default=1)
     status        = Column(String(50), default="Queued", index=True)
+    transaction_id = Column(String(100), index=True, nullable=True)
     timestamp     = Column(DateTime, default=datetime.utcnow)
     total_cost    = Column(Float)

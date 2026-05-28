@@ -3,7 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Request
 from sqlalchemy.orm import Session
 from typing import List
 import os
@@ -79,14 +80,16 @@ if AZURE_CONNECTION_STRING:
         print(f"[Azure Init Error] {e}")
 
 # =========================
-# RAZORPAY SETUP
+# PHONEPE SETUP
 # =========================
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
-
-razorpay_client = None
-if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
-    razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+PHONEPE_MERCHANT_ID = os.getenv("PHONEPE_MERCHANT_ID")
+PHONEPE_SALT_KEY = os.getenv("PHONEPE_SALT_KEY")
+PHONEPE_SALT_INDEX = os.getenv("PHONEPE_SALT_INDEX")
+PHONEPE_ENV = os.getenv("PHONEPE_ENV", "UAT")
+import base64
+import hashlib
+import requests
+from fastapi.responses import RedirectResponse
 
 # =========================
 # HELPER FUNCTIONS
@@ -123,65 +126,26 @@ def home():
 def admin_page():
     return FileResponse("static/admin.html")
 
-class OrderRequest(BaseModel):
-    amount: float
-
-@app.post("/create-order")
-def create_order(request: OrderRequest):
-    if not razorpay_client:
-        raise HTTPException(status_code=500, detail="Razorpay is not configured")
-    
-    amount_in_paise = int(request.amount * 100)
-    
-    try:
-        data = {
-            "amount": amount_in_paise,
-            "currency": "INR",
-            "receipt": f"receipt_{uuid.uuid4().hex[:8]}"
-        }
-        order = razorpay_client.order.create(data=data)
-        return {"order_id": order["id"]}
-    except Exception as e:
-        print(f"Razorpay Order Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create Razorpay Order")
-
-@app.post("/upload")
-async def upload_file(
+@app.post("/upload-pending")
+async def upload_pending(
     name: str = Form(...),
     roll: str = Form(...),
     options: str = Form(...),
-    razorpay_payment_id: str = Form(...),
-    razorpay_order_id: str = Form(...),
-    razorpay_signature: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    # 0. Verify Razorpay Signature mathematically
-    if not razorpay_client:
-        raise HTTPException(status_code=500, detail="Razorpay is not configured")
-        
-    try:
-        razorpay_client.utility.verify_payment_signature({
-            'razorpay_order_id': razorpay_order_id,
-            'razorpay_payment_id': razorpay_payment_id,
-            'razorpay_signature': razorpay_signature
-        })
-    except razorpay.errors.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid Payment Signature")
+    if not PHONEPE_MERCHANT_ID:
+        raise HTTPException(status_code=500, detail="PhonePe is not configured")
 
     # 1. Parse JSON options
     try:
         settings = json.loads(options)
         if isinstance(settings, str): 
             settings = json.loads(settings)
-            
-        # Inject payment receipt into settings for admin visibility
-        settings["razorpay_payment_id"] = razorpay_payment_id
-        settings["razorpay_order_id"] = razorpay_order_id
     except:
         raise HTTPException(status_code=400, detail="Invalid JSON format")
 
-    # 2. Upload to Azure Blob Storage
+    # 2. Upload to Azure Blob Storage (or local)
     file_ext = os.path.splitext(file.filename)[1]
     unique_filename = f"{uuid.uuid4()}{file_ext}"
     
@@ -189,13 +153,11 @@ async def upload_file(
     if blob_service_client:
         try:
             blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=unique_filename)
-            # Upload the incoming file stream directly without saving locally!
             blob_client.upload_blob(
                 file.file, 
                 content_settings=ContentSettings(content_type=file.content_type)
             )
             
-            # Generate a Secure SAS Token valid for 30 days
             sas_token = generate_blob_sas(
                 account_name=blob_service_client.account_name,
                 container_name=AZURE_CONTAINER_NAME,
@@ -206,10 +168,8 @@ async def upload_file(
             )
             file_url = f"{blob_client.url}?{sas_token}"
         except Exception as e:
-            print(f"Azure Upload Error: {e}")
             raise HTTPException(status_code=500, detail="Cloud Storage Upload Failed")
     else:
-        # Fallback to local storage if Azure is not configured
         file_path = os.path.join(UPLOAD_DIR, unique_filename)
         try:
             with open(file_path, "wb") as buffer:
@@ -218,22 +178,19 @@ async def upload_file(
         except Exception as e:
             raise HTTPException(status_code=500, detail="Local Storage Upload Failed")
 
-    # 3. Process Metadata & Math (using frontend page count)
+    # 3. Process Metadata & Math
     page_count = int(settings.get("pageCount", 1))
-    
-    # B&W = 1, Color = 10
     color_val = settings.get("color", "B&W")
     base_rate = 10 if color_val == "Color" else 1
-    
     paper_size = settings.get("size", "A4")
     size_multiplier = 2 if paper_size == "A3" else 1
-    
     copies = int(settings.get("copies", 1))
     
-    # ACTUAL TOTAL COST MATH
     total_cost = float(base_rate * size_multiplier * page_count * copies)
 
-    # 4. Save to Database
+    transaction_id = f"TXN_{uuid.uuid4().hex[:16]}"
+    
+    # 4. Save to Database as Pending_Payment
     try:
         db_job = models.PrintJob(
             user_name=name,
@@ -241,24 +198,110 @@ async def upload_file(
             file_url=file_url,
             page_count=page_count,
             page_settings=settings,
-            status="Queued",
+            status="Pending_Payment",
             total_cost=total_cost,
+            transaction_id=transaction_id,
             timestamp=datetime.now() 
         )
         db.add(db_job)
         db.commit()
         db.refresh(db_job)
     except Exception as e:
-        print(f"DB Error: {e}")
-        raise HTTPException(status_code=500, detail="Database Save Failed. Delete your .db file and restart.")
+        raise HTTPException(status_code=500, detail="Database Save Failed")
 
-    return {
-        "status": "success",
-        "job_id": db_job.id,
-        "total_cost": total_cost,
-        "pages": page_count,
-        "time": db_job.timestamp.strftime("%I:%M %p")
+    amount_in_paise = int(total_cost * 100)
+    
+    # Use environment variable for base URL, default to localhost for local testing
+    base_url = os.getenv("BASE_URL", "http://localhost:8000")
+    
+    payload = {
+        "merchantId": PHONEPE_MERCHANT_ID,
+        "merchantTransactionId": transaction_id,
+        "merchantUserId": f"USER_{roll}",
+        "amount": amount_in_paise,
+        "redirectUrl": f"{base_url}/payment/callback",
+        "redirectMode": "POST",
+        "paymentInstrument": {
+            "type": "PAY_PAGE"
+        }
     }
+    
+    payload_json = json.dumps(payload)
+    base64_payload = base64.b64encode(payload_json.encode('utf-8')).decode('utf-8')
+    
+    endpoint = "/pg/v1/pay"
+    string_to_hash = base64_payload + endpoint + PHONEPE_SALT_KEY
+    sha256_hash = hashlib.sha256(string_to_hash.encode('utf-8')).hexdigest()
+    x_verify = f"{sha256_hash}###{PHONEPE_SALT_INDEX}"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-VERIFY": x_verify
+    }
+    
+    # Determine Host based on ENV
+    host_url = "https://api-preprod.phonepe.com/apis/pg-sandbox" if PHONEPE_ENV == "UAT" else "https://api.phonepe.com/apis/hermes"
+    
+    try:
+        response = requests.post(
+            f"{host_url}{endpoint}",
+            json={"request": base64_payload},
+            headers=headers
+        )
+        res_data = response.json()
+        if res_data.get("success"):
+            redirect_url = res_data["data"]["instrumentResponse"]["redirectInfo"]["url"]
+            return {"redirect_url": redirect_url}
+        else:
+            print("PhonePe Error:", res_data)
+            raise HTTPException(status_code=500, detail="Failed to initialize PhonePe payment")
+    except Exception as e:
+        print("PhonePe Request Error:", e)
+        raise HTTPException(status_code=500, detail="Payment gateway error")
+
+@app.post("/payment/callback")
+async def payment_callback(transactionId: str = Form(...), code: str = Form(...), db: Session = Depends(get_db)):
+    """Verifies the payment via PhonePe Status API and redirects back to frontend."""
+    txn_id = transactionId
+    
+    if not txn_id:
+        return RedirectResponse(url="/?success=false&reason=Missing_Transaction_ID", status_code=303)
+        
+    """Verifies the payment via PhonePe Status API and redirects back to frontend."""
+    endpoint = f"/pg/v1/status/{PHONEPE_MERCHANT_ID}/{txn_id}"
+    
+    string_to_hash = endpoint + PHONEPE_SALT_KEY
+    sha256_hash = hashlib.sha256(string_to_hash.encode('utf-8')).hexdigest()
+    x_verify = f"{sha256_hash}###{PHONEPE_SALT_INDEX}"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-VERIFY": x_verify,
+        "X-MERCHANT-ID": PHONEPE_MERCHANT_ID
+    }
+    
+    host_url = "https://api-preprod.phonepe.com/apis/pg-sandbox" if PHONEPE_ENV == "UAT" else "https://api.phonepe.com/apis/hermes"
+    
+    try:
+        response = requests.get(f"{host_url}{endpoint}", headers=headers)
+        res_data = response.json()
+        
+        db_job = db.query(models.PrintJob).filter(models.PrintJob.transaction_id == txn_id).first()
+        
+        if res_data.get("success") and res_data["data"]["state"] == "COMPLETED":
+            if db_job:
+                db_job.status = "Queued"
+                db.commit()
+            return RedirectResponse(url="/?success=true", status_code=303)
+        else:
+            if db_job:
+                db_job.status = "Payment_Failed"
+                db.commit()
+            return RedirectResponse(url="/?success=false&reason=Payment_Failed", status_code=303)
+            
+    except Exception as e:
+        print("Status Check Error:", e)
+        return RedirectResponse(url="/?success=false&reason=Server_Error", status_code=303)
 
 @app.get("/queue", response_model=List[schemas.PrintJobResponse])
 def get_queue(db: Session = Depends(get_db)):

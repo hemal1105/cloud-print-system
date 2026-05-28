@@ -6,4 +6,4 @@ azure-storage-blob
 PyPDF2
 pymssql
 python-dotenv
-razorpay
+requests
